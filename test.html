@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mafia Game Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 10px; border: 1px solid #ccc; }
+        button { padding: 10px; margin: 5px; }
+        #log { background: #f0f0f0; padding: 10px; height: 200px; overflow-y: scroll; }
+    </style>
+</head>
+<body>
+    <h1>Mafia Game Connection Test</h1>
+    
+    <div class="test-section">
+        <h3>WebSocket Connection</h3>
+        <button onclick="testConnection()">Test Connection</button>
+        <button onclick="createRoom()">Create Room</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <div class="test-section">
+        <h3>Connection Status</h3>
+        <div id="status">Not connected</div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Log</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        const log = document.getElementById('log');
+        const status = document.getElementById('status');
+        
+        function logMessage(message) {
+            const time = new Date().toLocaleTimeString();
+            log.innerHTML += `[${time}] ${message}<br>`;
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        function clearLog() {
+            log.innerHTML = '';
+        }
+        
+        function testConnection() {
+            logMessage('Testing WebSocket connection...');
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.hostname}:3001`;
+            
+            logMessage(`Connecting to: ${wsUrl}`);
+            
+            try {
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = () => {
+                    logMessage('✅ WebSocket connected successfully!');
+                    status.textContent = 'Connected';
+                    status.style.color = 'green';
+                };
+                
+                ws.onmessage = (event) => {
+                    logMessage(`📨 Received: ${event.data}`);
+                    try {
+                        const message = JSON.parse(event.data);
+                        logMessage(`📋 Parsed message: ${JSON.stringify(message, null, 2)}`);
+                    } catch (error) {
+                        logMessage(`❌ Error parsing message: ${error}`);
+                    }
+                };
+                
+                ws.onclose = () => {
+                    logMessage('❌ WebSocket disconnected');
+                    status.textContent = 'Disconnected';
+                    status.style.color = 'red';
+                };
+                
+                ws.onerror = (error) => {
+                    logMessage(`❌ WebSocket error: ${error}`);
+                    status.textContent = 'Error';
+                    status.style.color = 'red';
+                };
+                
+            } catch (error) {
+                logMessage(`❌ Failed to create WebSocket: ${error}`);
+            }
+        }
+        
+        function createRoom() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                logMessage('❌ WebSocket not connected');
+                return;
+            }
+            
+            const message = {
+                type: 'createRoom',
+                username: 'TestUser',
+                settings: {
+                    totalPlayers: 7,
+                    mafia: 2,
+                    detective: 1,
+                    doctor: 1
+                }
+            };
+            
+            logMessage(`📤 Sending: ${JSON.stringify(message, null, 2)}`);
+            ws.send(JSON.stringify(message));
+        }
+    </script>
+</body>
+</html> 

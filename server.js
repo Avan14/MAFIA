@@ -191,12 +191,14 @@ function handleCreateRoom(ws, message) {
     rooms.set(roomCode, room);
     players.set(playerId, { ws, roomCode, playerData: player });
     
-    ws.send(JSON.stringify({
+    const response = {
         type: 'roomCreated',
         roomCode: roomCode,
         playerId: playerId,
         room: room
-    }));
+    };
+    
+    ws.send(JSON.stringify(response));
 }
 
 function handleJoinRoom(ws, message) {
@@ -404,10 +406,11 @@ function handleDisconnection(ws) {
 }
 
 // Start server
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Open http://localhost:${PORT} to play the game`);
+    console.log(`For external access, use your computer's IP address`);
 });
 
 // Cleanup disconnected players periodically

@@ -35,7 +35,8 @@ class MafiaGameApp {
      */
     connectWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}`;
+        // Use port 3001 for WebSocket connection regardless of current page port
+        const wsUrl = `${protocol}//${window.location.hostname}:3001`;
         
         try {
             this.ws = new WebSocket(wsUrl);
@@ -52,6 +53,7 @@ class MafiaGameApp {
                     this.handleServerMessage(message);
                 } catch (error) {
                     console.error('Error parsing server message:', error);
+                    console.error('Raw message:', event.data);
                 }
             };
             
@@ -128,6 +130,15 @@ class MafiaGameApp {
                 this.handleRoomLeft();
                 break;
             case 'error':
+                // Clear timeouts on error
+                if (this.roomCreationTimeout) {
+                    clearTimeout(this.roomCreationTimeout);
+                    this.roomCreationTimeout = null;
+                }
+                if (this.joinRoomTimeout) {
+                    clearTimeout(this.joinRoomTimeout);
+                    this.joinRoomTimeout = null;
+                }
                 this.showToast(message.message, 'error');
                 this.hideLoading();
                 break;
@@ -143,6 +154,12 @@ class MafiaGameApp {
      * Handle room created response
      */
     handleRoomCreated(message) {
+        // Clear the timeout
+        if (this.roomCreationTimeout) {
+            clearTimeout(this.roomCreationTimeout);
+            this.roomCreationTimeout = null;
+        }
+        
         this.currentRoom = message.room;
         this.currentUser = message.room.players.find(p => p.id === message.playerId);
         this.players = message.room.players;
@@ -162,6 +179,12 @@ class MafiaGameApp {
      * Handle room joined response
      */
     handleRoomJoined(message) {
+        // Clear the timeout
+        if (this.joinRoomTimeout) {
+            clearTimeout(this.joinRoomTimeout);
+            this.joinRoomTimeout = null;
+        }
+        
         this.currentRoom = message.room;
         this.currentUser = message.room.players.find(p => p.id === message.playerId);
         this.players = message.room.players;
@@ -523,6 +546,12 @@ class MafiaGameApp {
         
         this.showLoading('Creating room...');
         
+        // Set a timeout to prevent infinite loading
+        this.roomCreationTimeout = setTimeout(() => {
+            this.hideLoading();
+            this.showToast('Room creation timed out. Please try again.', 'error');
+        }, 10000); // 10 seconds timeout
+        
         this.sendMessage({
             type: 'createRoom',
             username: username,
@@ -543,6 +572,12 @@ class MafiaGameApp {
         }
         
         this.showLoading('Joining room...');
+        
+        // Set a timeout to prevent infinite loading
+        this.joinRoomTimeout = setTimeout(() => {
+            this.hideLoading();
+            this.showToast('Joining room timed out. Please try again.', 'error');
+        }, 10000); // 10 seconds timeout
         
         this.sendMessage({
             type: 'joinRoom',
