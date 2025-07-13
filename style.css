@@ -614,6 +614,30 @@ input::placeholder {
 }
 
 /* Accessibility */
+/* Connection Error */
+.connection-error {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #ef4444;
+    color: #ffffff;
+    padding: 12px;
+    text-align: center;
+    font-weight: 500;
+    z-index: 1002;
+    display: none;
+}
+
+/* Disconnected Player Styling */
+.player-item.disconnected {
+    opacity: 0.6;
+}
+
+.status-indicator.disconnected {
+    background: #f59e0b;
+}
+
 @media (prefers-reduced-motion: reduce) {
     * {
         animation-duration: 0.01ms !important;

@@ -1,4 +1,4 @@
-// Main application logic for Mafia game room manager
+// Main application logic for Mafia game room manager with WebSocket support
 
 class MafiaGameApp {
     constructor() {
@@ -7,6 +7,9 @@ class MafiaGameApp {
         this.currentRoom = null;
         this.players = [];
         this.isHost = false;
+        this.ws = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
         this.gameSettings = {
             totalPlayers: 7,
             mafia: 2,
@@ -23,8 +26,276 @@ class MafiaGameApp {
     init() {
         this.bindEvents();
         this.loadSavedData();
+        this.connectWebSocket();
         this.showScreen('home');
-        this.startHeartbeat();
+    }
+
+    /**
+     * Connect to WebSocket server
+     */
+    connectWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}`;
+        
+        try {
+            this.ws = new WebSocket(wsUrl);
+            
+            this.ws.onopen = () => {
+                console.log('Connected to server');
+                this.reconnectAttempts = 0;
+                this.hideConnectionError();
+            };
+            
+            this.ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    this.handleServerMessage(message);
+                } catch (error) {
+                    console.error('Error parsing server message:', error);
+                }
+            };
+            
+            this.ws.onclose = () => {
+                console.log('Disconnected from server');
+                this.showConnectionError();
+                this.attemptReconnect();
+            };
+            
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                this.showConnectionError();
+            };
+        } catch (error) {
+            console.error('Failed to connect to WebSocket:', error);
+            this.showConnectionError();
+        }
+    }
+
+    /**
+     * Attempt to reconnect to WebSocket
+     */
+    attemptReconnect() {
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            console.log(`Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+            
+            setTimeout(() => {
+                this.connectWebSocket();
+            }, 2000 * this.reconnectAttempts);
+        } else {
+            this.showToast('Connection lost. Please refresh the page.', 'error');
+        }
+    }
+
+    /**
+     * Send message to server
+     */
+    sendMessage(message) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(message));
+        } else {
+            this.showToast('Not connected to server', 'error');
+        }
+    }
+
+    /**
+     * Handle messages from server
+     */
+    handleServerMessage(message) {
+        switch (message.type) {
+            case 'roomCreated':
+                this.handleRoomCreated(message);
+                break;
+            case 'roomJoined':
+                this.handleRoomJoined(message);
+                break;
+            case 'playerJoined':
+                this.handlePlayerJoined(message);
+                break;
+            case 'playerLeft':
+                this.handlePlayerLeft(message);
+                break;
+            case 'playerReadyChanged':
+                this.handlePlayerReadyChanged(message);
+                break;
+            case 'playerDisconnected':
+                this.handlePlayerDisconnected(message);
+                break;
+            case 'gameStarted':
+                this.handleGameStarted(message);
+                break;
+            case 'roomLeft':
+                this.handleRoomLeft();
+                break;
+            case 'error':
+                this.showToast(message.message, 'error');
+                this.hideLoading();
+                break;
+            case 'pong':
+                // Handle ping response
+                break;
+            default:
+                console.warn('Unknown message type:', message.type);
+        }
+    }
+
+    /**
+     * Handle room created response
+     */
+    handleRoomCreated(message) {
+        this.currentRoom = message.room;
+        this.currentUser = message.room.players.find(p => p.id === message.playerId);
+        this.players = message.room.players;
+        this.isHost = true;
+        
+        Storage.set('currentRoom', this.currentRoom);
+        Storage.set('currentUser', this.currentUser);
+        Storage.set('playerId', message.playerId);
+        
+        this.hideLoading();
+        this.showWaitingRoom();
+        playSound('success');
+        this.showToast('Room created successfully!');
+    }
+
+    /**
+     * Handle room joined response
+     */
+    handleRoomJoined(message) {
+        this.currentRoom = message.room;
+        this.currentUser = message.room.players.find(p => p.id === message.playerId);
+        this.players = message.room.players;
+        this.isHost = false;
+        
+        Storage.set('currentRoom', this.currentRoom);
+        Storage.set('currentUser', this.currentUser);
+        Storage.set('playerId', message.playerId);
+        
+        this.hideLoading();
+        this.showWaitingRoom();
+        playSound('join');
+        this.showToast('Joined room successfully!');
+    }
+
+    /**
+     * Handle player joined
+     */
+    handlePlayerJoined(message) {
+        this.currentRoom = message.room;
+        this.players = message.room.players;
+        this.updatePlayersDisplay();
+        this.updateStartButton();
+        playSound('notification');
+        this.showToast(`${message.player.username} joined the room`);
+    }
+
+    /**
+     * Handle player left
+     */
+    handlePlayerLeft(message) {
+        this.currentRoom = message.room;
+        this.players = message.room.players;
+        
+        // Check if we became host
+        if (this.currentUser) {
+            const updatedUser = this.players.find(p => p.id === this.currentUser.id);
+            if (updatedUser && updatedUser.isHost !== this.isHost) {
+                this.isHost = updatedUser.isHost;
+                this.currentUser.isHost = this.isHost;
+                if (this.isHost) {
+                    this.showToast('You are now the host!');
+                }
+            }
+        }
+        
+        this.updatePlayersDisplay();
+        this.updateHostControls();
+        this.updateStartButton();
+        playSound('leave');
+    }
+
+    /**
+     * Handle player ready status changed
+     */
+    handlePlayerReadyChanged(message) {
+        this.currentRoom = message.room;
+        this.players = message.room.players;
+        
+        // Update current user if it's us
+        if (message.playerId === this.currentUser?.id) {
+            this.currentUser.ready = message.ready;
+            this.updateReadyButton();
+        }
+        
+        this.updatePlayersDisplay();
+        this.updateStartButton();
+        playSound('ready');
+    }
+
+    /**
+     * Handle player disconnected
+     */
+    handlePlayerDisconnected(message) {
+        this.currentRoom = message.room;
+        this.players = message.room.players;
+        this.updatePlayersDisplay();
+        this.showToast('A player disconnected', 'warning');
+    }
+
+    /**
+     * Handle game started
+     */
+    handleGameStarted(message) {
+        this.currentUser.role = message.role;
+        this.currentRoom = message.room;
+        this.players = message.room.players;
+        
+        Storage.set('currentUser', this.currentUser);
+        Storage.set('currentRoom', this.currentRoom);
+        
+        this.showGameScreen(message.roleInfo, message.teamMembers);
+        playSound('start');
+    }
+
+    /**
+     * Handle room left
+     */
+    handleRoomLeft() {
+        this.currentRoom = null;
+        this.players = [];
+        this.isHost = false;
+        this.currentUser = null;
+        
+        Storage.remove('currentRoom');
+        Storage.remove('currentUser');
+        Storage.remove('playerId');
+        
+        this.hideLoading();
+        this.showScreen('home');
+        playSound('leave');
+        this.showToast('Left room');
+    }
+
+    /**
+     * Show/hide connection error
+     */
+    showConnectionError() {
+        let errorDiv = document.getElementById('connection-error');
+        if (!errorDiv) {
+            errorDiv = document.createElement('div');
+            errorDiv.id = 'connection-error';
+            errorDiv.className = 'connection-error';
+            errorDiv.innerHTML = '⚠️ Connection lost. Attempting to reconnect...';
+            document.body.appendChild(errorDiv);
+        }
+        errorDiv.style.display = 'block';
+    }
+
+    hideConnectionError() {
+        const errorDiv = document.getElementById('connection-error');
+        if (errorDiv) {
+            errorDiv.style.display = 'none';
+        }
     }
 
     /**
@@ -99,6 +370,13 @@ class MafiaGameApp {
         document.getElementById('room-code-input').addEventListener('input', () => {
             this.clearRoomCodeError();
         });
+
+        // Heartbeat to keep connection alive
+        setInterval(() => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.sendMessage({ type: 'ping' });
+            }
+        }, 30000);
     }
 
     /**
@@ -110,49 +388,15 @@ class MafiaGameApp {
             document.getElementById('username').value = savedUsername;
         }
 
+        // Check if we were in a room (for reconnection)
         const savedRoom = Storage.get('currentRoom');
         const savedUser = Storage.get('currentUser');
+        const playerId = Storage.get('playerId');
         
-        if (savedRoom && savedUser) {
-            this.currentRoom = savedRoom;
-            this.currentUser = savedUser;
-            this.players = Storage.get('players', []);
-            this.isHost = savedUser.isHost;
-            
-            // Check if we're in a game
-            if (savedRoom.gameStarted) {
-                this.showGameScreen();
-            } else {
-                this.showWaitingRoom();
-            }
+        if (savedRoom && savedUser && playerId) {
+            // We'll handle reconnection when WebSocket connects
+            this.showLoading('Reconnecting...');
         }
-    }
-
-    /**
-     * Start heartbeat for simulating real-time updates
-     */
-    startHeartbeat() {
-        setInterval(() => {
-            if (this.currentRoom && this.currentScreen === 'waiting-room') {
-                this.simulatePlayerUpdates();
-            }
-        }, 3000);
-    }
-
-    /**
-     * Simulate player updates for demo purposes
-     */
-    simulatePlayerUpdates() {
-        // Randomly toggle ready state of AI players
-        this.players.forEach(player => {
-            if (player.id !== this.currentUser?.id && Math.random() < 0.1) {
-                player.ready = !player.ready;
-            }
-        });
-
-        this.updatePlayersDisplay();
-        this.updateStartButton();
-        Storage.set('players', this.players);
     }
 
     /**
@@ -167,9 +411,7 @@ class MafiaGameApp {
             return false;
         }
         
-        this.currentUser = createPlayer(username, generatePlayerId(), false);
         Storage.set('username', username);
-        Storage.set('currentUser', this.currentUser);
         return true;
     }
 
@@ -277,48 +519,15 @@ class MafiaGameApp {
      * Create a new room
      */
     createRoom() {
+        const username = document.getElementById('username').value.trim();
+        
         this.showLoading('Creating room...');
         
-        setTimeout(() => {
-            const roomCode = document.getElementById('generated-room-code').textContent;
-            
-            this.currentRoom = {
-                code: roomCode,
-                settings: { ...this.gameSettings },
-                createdAt: new Date().toISOString(),
-                gameStarted: false
-            };
-            
-            this.currentUser.isHost = true;
-            this.isHost = true;
-            this.players = [{ ...this.currentUser }];
-            
-            // Add some AI players for demo
-            this.addDemoPlayers();
-            
-            Storage.set('currentRoom', this.currentRoom);
-            Storage.set('currentUser', this.currentUser);
-            Storage.set('players', this.players);
-            
-            this.hideLoading();
-            this.showWaitingRoom();
-            playSound('success');
-            this.showToast('Room created successfully!');
-        }, 1000);
-    }
-
-    /**
-     * Add demo AI players
-     */
-    addDemoPlayers() {
-        const aiNames = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace'];
-        const maxAI = Math.min(3, this.gameSettings.totalPlayers - 1);
-        
-        for (let i = 0; i < maxAI; i++) {
-            const aiPlayer = createPlayer(aiNames[i], generatePlayerId(), false);
-            aiPlayer.ready = Math.random() < 0.3;
-            this.players.push(aiPlayer);
-        }
+        this.sendMessage({
+            type: 'createRoom',
+            username: username,
+            settings: { ...this.gameSettings }
+        });
     }
 
     /**
@@ -326,6 +535,7 @@ class MafiaGameApp {
      */
     joinRoom() {
         const roomCode = document.getElementById('room-code-input').value.trim();
+        const username = document.getElementById('username').value.trim();
         
         if (!isValidRoomCode(roomCode)) {
             this.showRoomCodeError('Please enter a valid 6-character room code');
@@ -334,66 +544,25 @@ class MafiaGameApp {
         
         this.showLoading('Joining room...');
         
-        setTimeout(() => {
-            // Simulate room lookup
-            const roomExists = Math.random() < 0.8; // 80% chance room exists for demo
-            
-            if (!roomExists) {
-                this.hideLoading();
-                this.showRoomCodeError('Room not found. Please check the code and try again.');
-                playSound('error');
-                return;
-            }
-            
-            // Create mock room data
-            this.currentRoom = {
-                code: roomCode,
-                settings: { ...this.gameSettings },
-                createdAt: new Date().toISOString(),
-                gameStarted: false
-            };
-            
-            this.currentUser.isHost = false;
-            this.isHost = false;
-            
-            // Create mock player list
-            this.players = [
-                createPlayer('Host', generatePlayerId(), true),
-                { ...this.currentUser }
-            ];
-            
-            this.addDemoPlayers();
-            
-            Storage.set('currentRoom', this.currentRoom);
-            Storage.set('currentUser', this.currentUser);
-            Storage.set('players', this.players);
-            
-            this.hideLoading();
-            this.showWaitingRoom();
-            playSound('join');
-            this.showToast('Joined room successfully!');
-        }, 1500);
+        this.sendMessage({
+            type: 'joinRoom',
+            username: username,
+            roomCode: roomCode
+        });
     }
 
     /**
      * Leave current room
      */
     leaveRoom() {
+        if (!this.currentUser) return;
+        
         this.showLoading('Leaving room...');
         
-        setTimeout(() => {
-            this.currentRoom = null;
-            this.players = [];
-            this.isHost = false;
-            
-            Storage.remove('currentRoom');
-            Storage.remove('players');
-            
-            this.hideLoading();
-            this.showScreen('home');
-            playSound('leave');
-            this.showToast('Left room');
-        }, 500);
+        this.sendMessage({
+            type: 'leaveRoom',
+            playerId: this.currentUser.id
+        });
     }
 
     /**
@@ -402,30 +571,17 @@ class MafiaGameApp {
     toggleReady() {
         if (!this.currentUser) return;
         
-        this.currentUser.ready = !this.currentUser.ready;
-        
-        // Update player in players array
-        const playerIndex = this.players.findIndex(p => p.id === this.currentUser.id);
-        if (playerIndex !== -1) {
-            this.players[playerIndex].ready = this.currentUser.ready;
-        }
-        
-        Storage.set('currentUser', this.currentUser);
-        Storage.set('players', this.players);
-        
-        this.updateReadyButton();
-        this.updatePlayersDisplay();
-        this.updateStartButton();
-        
-        playSound('ready');
-        this.showToast(this.currentUser.ready ? 'You are ready!' : 'You are not ready');
+        this.sendMessage({
+            type: 'toggleReady',
+            playerId: this.currentUser.id
+        });
     }
 
     /**
      * Start the game
      */
     startGame() {
-        if (!this.isHost) return;
+        if (!this.isHost || !this.currentUser) return;
         
         const readyPlayers = this.players.filter(p => p.ready);
         if (readyPlayers.length < 4) {
@@ -435,41 +591,10 @@ class MafiaGameApp {
         
         this.showLoading('Starting game...');
         
-        setTimeout(() => {
-            // Assign roles to ready players
-            const gameRoles = calculateRoleDistribution(
-                readyPlayers.length,
-                Math.min(this.currentRoom.settings.mafia, Math.floor(readyPlayers.length / 3)),
-                Math.min(this.currentRoom.settings.detective, 1),
-                Math.min(this.currentRoom.settings.doctor, 1)
-            );
-            
-            const playersWithRoles = assignRoles(readyPlayers, gameRoles);
-            
-            // Update players array
-            playersWithRoles.forEach(rolePlayer => {
-                const index = this.players.findIndex(p => p.id === rolePlayer.id);
-                if (index !== -1) {
-                    this.players[index] = rolePlayer;
-                }
-            });
-            
-            // Update current user
-            const currentUserWithRole = playersWithRoles.find(p => p.id === this.currentUser.id);
-            if (currentUserWithRole) {
-                this.currentUser = currentUserWithRole;
-            }
-            
-            this.currentRoom.gameStarted = true;
-            
-            Storage.set('currentRoom', this.currentRoom);
-            Storage.set('currentUser', this.currentUser);
-            Storage.set('players', this.players);
-            
-            this.hideLoading();
-            this.showGameScreen();
-            playSound('start');
-        }, 2000);
+        this.sendMessage({
+            type: 'startGame',
+            playerId: this.currentUser.id
+        });
     }
 
     /**
@@ -497,11 +622,12 @@ class MafiaGameApp {
         maxPlayers.textContent = this.currentRoom.settings.totalPlayers;
         
         playersList.innerHTML = this.players.map(player => `
-            <div class="player-item">
+            <div class="player-item ${!player.connected ? 'disconnected' : ''}">
                 <span class="player-name">${player.username}</span>
                 <div class="player-status">
                     ${player.isHost ? '<span class="status-indicator host"></span> Host' : ''}
-                    ${player.ready ? '<span class="status-indicator ready"></span> Ready' : '<span class="status-indicator"></span> Not Ready'}
+                    ${!player.connected ? '<span class="status-indicator disconnected"></span> Disconnected' : 
+                      player.ready ? '<span class="status-indicator ready"></span> Ready' : '<span class="status-indicator"></span> Not Ready'}
                 </div>
             </div>
         `).join('');
@@ -569,16 +695,14 @@ class MafiaGameApp {
         if (!this.isHost) return;
         
         const startBtn = document.getElementById('start-game-btn');
-        const readyPlayers = this.players.filter(p => p.ready);
-        const canStart = readyPlayers.length >= 4 && allPlayersReady(this.players);
+        const readyPlayers = this.players.filter(p => p.ready && p.connected);
+        const canStart = readyPlayers.length >= 4;
         
         startBtn.disabled = !canStart;
         
         const helpText = document.querySelector('.help-text');
         if (readyPlayers.length < 4) {
             helpText.textContent = `Need at least 4 ready players (${readyPlayers.length}/4)`;
-        } else if (!allPlayersReady(this.players)) {
-            helpText.textContent = 'All players must be ready to start';
         } else {
             helpText.textContent = 'Ready to start!';
         }
@@ -587,30 +711,20 @@ class MafiaGameApp {
     /**
      * Show game screen with role reveal
      */
-    showGameScreen() {
-        if (!this.currentUser?.role) return;
-        
-        const roleInfo = getRoleInfo(this.currentUser.role);
-        
+    showGameScreen(roleInfo, teamMembers = []) {
         document.getElementById('player-role').textContent = roleInfo.name;
         document.getElementById('player-role').className = `role-display ${roleInfo.color}`;
         document.getElementById('role-description').textContent = roleInfo.description;
         
         // Show team information for mafia
         const teamInfo = document.getElementById('team-info');
-        if (this.currentUser.role === 'mafia') {
-            const mafiaMembers = this.players
-                .filter(p => p.role === 'mafia' && p.id !== this.currentUser.id)
-                .map(p => p.username);
-            
-            if (mafiaMembers.length > 0) {
-                teamInfo.innerHTML = `
-                    <strong>Your Mafia Partners:</strong><br>
-                    ${mafiaMembers.join(', ')}
-                `;
-            } else {
-                teamInfo.innerHTML = '<strong>You are the only Mafia member.</strong>';
-            }
+        if (this.currentUser.role === 'mafia' && teamMembers.length > 0) {
+            teamInfo.innerHTML = `
+                <strong>Your Mafia Partners:</strong><br>
+                ${teamMembers.map(p => p.username).join(', ')}
+            `;
+        } else if (this.currentUser.role === 'mafia') {
+            teamInfo.innerHTML = '<strong>You are the only Mafia member.</strong>';
         } else {
             teamInfo.innerHTML = '';
         }
