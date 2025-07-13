@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mafia Game Manager</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Home Screen -->
+        <div id="home-screen" class="screen active">
+            <div class="container">
+                <header class="app-header">
+                    <h1 class="app-title">🕵️ Mafia Game</h1>
+                    <p class="app-subtitle">Create or join a game room</p>
+                </header>
+                
+                <div class="card">
+                    <div class="input-group">
+                        <label for="username">Enter your username</label>
+                        <input type="text" id="username" placeholder="Your name" maxlength="20">
+                        <div class="error-message" id="username-error"></div>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button id="create-room-btn" class="btn btn-primary">Create Room</button>
+                        <button id="join-room-btn" class="btn btn-secondary">Join Room</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create Room Screen -->
+        <div id="create-room-screen" class="screen">
+            <div class="container">
+                <header class="screen-header">
+                    <button id="back-from-create" class="btn-back">← Back</button>
+                    <h2>Create Game Room</h2>
+                </header>
+                
+                <div class="card">
+                    <div class="room-code-section">
+                        <label>Room Code</label>
+                        <div class="room-code-display">
+                            <span id="generated-room-code">------</span>
+                            <button id="copy-code-btn" class="btn-icon" title="Copy room code">📋</button>
+                        </div>
+                    </div>
+                    
+                    <form id="room-settings-form">
+                        <div class="settings-grid">
+                            <div class="input-group">
+                                <label for="total-players">Total Players</label>
+                                <select id="total-players">
+                                    <option value="5">5 Players</option>
+                                    <option value="6">6 Players</option>
+                                    <option value="7" selected>7 Players</option>
+                                    <option value="8">8 Players</option>
+                                    <option value="9">9 Players</option>
+                                    <option value="10">10 Players</option>
+                                    <option value="11">11 Players</option>
+                                    <option value="12">12 Players</option>
+                                    <option value="13">13 Players</option>
+                                    <option value="14">14 Players</option>
+                                    <option value="15">15 Players</option>
+                                </select>
+                            </div>
+                            
+                            <div class="input-group">
+                                <label for="mafia-count">Mafia Members</label>
+                                <select id="mafia-count">
+                                    <option value="1">1 Mafia</option>
+                                    <option value="2" selected>2 Mafia</option>
+                                    <option value="3">3 Mafia</option>
+                                </select>
+                            </div>
+                            
+                            <div class="input-group">
+                                <label for="detective-count">Detectives</label>
+                                <select id="detective-count">
+                                    <option value="0">0 Detective</option>
+                                    <option value="1" selected>1 Detective</option>
+                                </select>
+                            </div>
+                            
+                            <div class="input-group">
+                                <label for="doctor-count">Doctors</label>
+                                <select id="doctor-count">
+                                    <option value="0">0 Doctor</option>
+                                    <option value="1" selected>1 Doctor</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="role-summary" id="role-summary">
+                            <h4>Role Distribution:</h4>
+                            <div class="role-list" id="role-breakdown"></div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary btn-full">Create Room</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Join Room Screen -->
+        <div id="join-room-screen" class="screen">
+            <div class="container">
+                <header class="screen-header">
+                    <button id="back-from-join" class="btn-back">← Back</button>
+                    <h2>Join Game Room</h2>
+                </header>
+                
+                <div class="card">
+                    <div class="input-group">
+                        <label for="room-code-input">Enter Room Code</label>
+                        <input type="text" id="room-code-input" placeholder="ABCDEF" maxlength="6" style="text-transform: uppercase;">
+                        <div class="error-message" id="room-code-error"></div>
+                    </div>
+                    
+                    <button id="join-room-submit" class="btn btn-primary btn-full">Join Room</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Waiting Room Screen -->
+        <div id="waiting-room-screen" class="screen">
+            <div class="container">
+                <header class="screen-header">
+                    <button id="leave-room-btn" class="btn-back">← Leave Room</button>
+                    <h2>Room: <span id="current-room-code"></span></h2>
+                </header>
+                
+                <div class="room-content">
+                    <div class="card">
+                        <h3>Players (<span id="player-count">0</span>/<span id="max-players">0</span>)</h3>
+                        <div id="players-list" class="players-list"></div>
+                        
+                        <div class="player-actions">
+                            <button id="ready-toggle-btn" class="btn btn-secondary">Ready Up</button>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Game Settings</h3>
+                        <div id="game-settings-display" class="settings-display"></div>
+                        
+                        <div id="host-controls" class="host-controls" style="display: none;">
+                            <button id="start-game-btn" class="btn btn-primary btn-full" disabled>Start Game</button>
+                            <p class="help-text">All players must be ready to start</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="screen">
+            <div class="container">
+                <header class="screen-header">
+                    <h2>Game Started</h2>
+                </header>
+                
+                <div class="card role-reveal">
+                    <div class="role-card">
+                        <h3>Your Role</h3>
+                        <div id="player-role" class="role-display"></div>
+                        <div id="role-description" class="role-description"></div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>Game Instructions</h3>
+                    <div class="instructions">
+                        <p>The game has begun! Follow the moderator's instructions and work with your team to achieve your objectives.</p>
+                        <div id="team-info" class="team-info"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay" style="display: none;">
+            <div class="loading-spinner"></div>
+            <p id="loading-text">Loading...</p>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div id="toast-container" class="toast-container"></div>
+    </div>
+
+    <script src="utils.js"></script>
+    <script src="audio.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
